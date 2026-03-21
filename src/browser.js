@@ -392,6 +392,59 @@ async function waitForSubmissionResult(timeoutMs = 60000, pollIntervalMs = 2000)
 }
 
 /**
+ * Extract error details from the submission result panel.
+ * Returns { errorText, input, output, expected } depending on error type.
+ */
+function getSubmissionError() {
+  const script = `(function() {
+    const body = document.body.innerText;
+    const lines = body.split('\\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    const result = {};
+
+    for (let i = 0; i < lines.length; i++) {
+      // Wrong answer: capture input / output / expected
+      if (lines[i] === '输出' && lines[i+1]) result.output = lines[i+1];
+      if (lines[i] === '预期结果' && lines[i+1]) result.expected = lines[i+1];
+      if (lines[i] === '最后执行的输入' && lines[i+1]) result.lastInput = lines[i+1];
+      // Runtime / compile error: capture error text
+      if ((lines[i].includes('Error') || lines[i].includes('Exception') || lines[i].includes('错误')) &&
+          lines[i].length < 200 && !lines[i].includes('解答错误') && !lines[i].includes('执行出错')) {
+        if (!result.errorText) result.errorText = lines[i];
+      }
+    }
+
+    // Also check for X/Y pass count
+    const passMatch = body.match(/(\\d+)\\s*\\/\\s*(\\d+)\\s*个.*通过的测试用例/);
+    if (passMatch) result.passCount = passMatch[0].trim();
+
+    return Object.keys(result).length > 0 ? result : null;
+  })()`;
+  return evalJsValue(script);
+}
+
+/**
+ * Check if the current problem has already been accepted (通过) by the user.
+ * LeetCode shows a green checkmark or "已解答" indicator on solved problems.
+ */
+function isAlreadySolved() {
+  const script = `(function() {
+    // Check for the green checkmark / accepted indicator near the problem title
+    const checks = document.querySelectorAll('[class*="text-green"], [class*="accepted"], [class*="solved"]');
+    for (const el of checks) {
+      if (el.innerText && (el.innerText.includes('通过') || el.innerText.includes('✓'))) return true;
+    }
+    // Check data attributes
+    const statusEl = document.querySelector('[data-status="ac"], [class*="status-ac"]');
+    if (statusEl) return true;
+    // Check if submission history shows ac
+    const body = document.body.innerText;
+    const titleArea = body.substring(0, 500);
+    return titleArea.includes('已解答') && !titleArea.includes('未解答');
+  })()`;
+  return evalJsValue(script) === true;
+}
+
+/**
  * Navigate to random problem via /problems/random
  */
 async function goToRandomProblem() {
@@ -419,12 +472,14 @@ module.exports = {
   exists,
   getDescriptionContent,
   isLockedProblem,
+  isAlreadySolved,
   isLoggedIn,
   waitForLogin,
   selectLanguage,
   fillCode,
   clickSubmit,
   getSubmissionResult,
+  getSubmissionError,
   waitForSubmissionResult,
   goToRandomProblem,
   LEETCODE_URL,

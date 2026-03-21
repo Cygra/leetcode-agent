@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/index.js",
     "solve": "node src/index.js --once",
-    "test": "node src/index.js --test",
+    "test": "node test/solver.test.js && node test/submission.test.js",
+    "test:solver": "node test/solver.test.js",
+    "test:submission": "node test/submission.test.js",
     "close": "agent-browser --session-name leetcode close"
   },
   "keywords": [
@@ -14,10 +16,10 @@
     "agent"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "description": "LeetCode Auto Solver Agent",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
-    "agent-browser": "^0.21.4"
+    "agent-browser": "^0.21.4",
+    "openai": "^6.32.0"
   }
 }

@@ -115,6 +115,11 @@ async function openRandomProblem(maxAttempts = 5) {
           console.log(`Skipping locked problem: ${randomSlug}`);
           continue;
         }
+        // Skip already-solved problems
+        if (browser.isAlreadySolved()) {
+          console.log(`Skipping already-solved problem: ${randomSlug}`);
+          continue;
+        }
         const description = await maybeAwait(browser.getDescriptionContent());
         if (description && description.length > 50) {
           return { url, description, success: true };

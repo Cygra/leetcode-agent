@@ -65,8 +65,8 @@ async function autoSolve(maxRetries = 5) {
       await new Promise(r => setTimeout(r, 1000));
 
       // 4. Generate solution
-      console.log('4. Generating solution with Claude...');
-      const code = await solver.generateSolution(result.description, selectedLanguage);
+      console.log('4. Generating solution with AI...');
+      let code = await solver.generateSolution(result.description, selectedLanguage);
 
       console.log(`   code = ${code ? 'truthy (' + code.length + ' chars)' : 'falsy'}, validateCode = ${solver.validateCode(code)}`);
       if (!code || !solver.validateCode(code)) {
@@ -77,21 +77,49 @@ async function autoSolve(maxRetries = 5) {
 
       console.log(`   Generated ${code.length} chars of code\n`);
 
-      // 5. Fill code via Monaco API
-      console.log('5. Filling code into Monaco editor...');
-      const fillResult = browser.fillCode(code);
-      console.log(`   Result: ${fillResult}\n`);
-      await new Promise(r => setTimeout(r, 500));
+      // 5. Fill + submit, with up to 3 fix attempts
+      let submissionResult;
+      const MAX_FIX_ATTEMPTS = 3;
+      for (let fix = 0; fix <= MAX_FIX_ATTEMPTS; fix++) {
+        // Fill code via Monaco API
+        console.log(`5. Filling code into Monaco editor (attempt ${fix + 1})...`);
+        browser.fillCode(code);
+        await new Promise(r => setTimeout(r, 500));
 
-      // 6. Submit solution
-      console.log('6. Submitting solution...');
-      const submitResult = browser.clickSubmit();
-      console.log(`   Result: ${submitResult}\n`);
+        // Submit solution
+        console.log('6. Submitting solution...');
+        browser.clickSubmit();
 
-      // 7. Poll for result (up to 60s)
-      console.log('7. Waiting for result...');
-      const submissionResult = await browser.waitForSubmissionResult();
-      console.log(`   Result: ${submissionResult}\n`);
+        // Poll for result (up to 60s)
+        console.log('7. Waiting for result...');
+        submissionResult = await browser.waitForSubmissionResult();
+        console.log(`   Result: ${submissionResult}\n`);
+
+        if (submissionResult === 'success') break;
+        if (submissionResult === 'not_logged_in') break;
+
+        if (fix < MAX_FIX_ATTEMPTS) {
+          // Extract error details and attempt a fix
+          const errDetails = browser.getSubmissionError();
+          let errMsg = submissionResult;
+          if (errDetails) {
+            if (errDetails.errorText) errMsg += `\n${errDetails.errorText}`;
+            if (errDetails.output) errMsg += `\nActual output: ${errDetails.output}`;
+            if (errDetails.expected) errMsg += `\nExpected: ${errDetails.expected}`;
+            if (errDetails.lastInput) errMsg += `\nInput: ${errDetails.lastInput}`;
+            if (errDetails.passCount) errMsg += `\n${errDetails.passCount}`;
+          }
+          console.log(`   Error details: ${errMsg}`);
+          console.log(`   Fixing solution (fix ${fix + 1}/${MAX_FIX_ATTEMPTS})...`);
+          const fixed = await solver.fixSolution(code, errMsg, result.description, selectedLanguage);
+          if (fixed && solver.validateCode(fixed)) {
+            code = fixed;
+          } else {
+            console.log('   Fix failed, stopping retry.');
+            break;
+          }
+        }
+      }
 
       if (submissionResult === 'success') {
         console.log('================================');
@@ -201,8 +229,8 @@ async function autoSolveContinuous() {
       await new Promise(r => setTimeout(r, 1000));
 
       // 4. Generate solution
-      console.log('4. Generating solution with Claude...');
-      const code = await solver.generateSolution(result.description, selectedLanguage);
+      console.log('4. Generating solution with AI...');
+      let code = await solver.generateSolution(result.description, selectedLanguage);
 
       if (!code || !solver.validateCode(code)) {
         console.log('Failed to generate valid solution, retrying...\n');
@@ -212,21 +240,39 @@ async function autoSolveContinuous() {
 
       console.log(`   Generated ${code.length} chars of code\n`);
 
-      // 5. Fill code via Monaco API
-      console.log('5. Filling code into Monaco editor...');
-      const fillResultC = browser.fillCode(code);
-      console.log(`   Result: ${fillResultC}\n`);
-      await new Promise(r => setTimeout(r, 500));
+      // 5. Fill + submit, with up to 3 fix attempts
+      let submissionResult;
+      const MAX_FIX = 3;
+      for (let fix = 0; fix <= MAX_FIX; fix++) {
+        console.log(`5. Filling code (attempt ${fix + 1})...`);
+        browser.fillCode(code);
+        await new Promise(r => setTimeout(r, 500));
 
-      // 6. Submit solution
-      console.log('6. Submitting solution...');
-      const submitResultC = browser.clickSubmit();
-      console.log(`   Result: ${submitResultC}\n`);
+        console.log('6. Submitting solution...');
+        browser.clickSubmit();
 
-      // 7. Poll for result (up to 60s)
-      console.log('7. Waiting for result...');
-      const submissionResult = await browser.waitForSubmissionResult();
-      console.log(`   Result: ${submissionResult}\n`);
+        console.log('7. Waiting for result...');
+        submissionResult = await browser.waitForSubmissionResult();
+        console.log(`   Result: ${submissionResult}\n`);
+
+        if (submissionResult === 'success') break;
+        if (submissionResult === 'not_logged_in') break;
+
+        if (fix < MAX_FIX) {
+          const errDetails = browser.getSubmissionError();
+          let errMsg = submissionResult;
+          if (errDetails) {
+            if (errDetails.errorText) errMsg += `\n${errDetails.errorText}`;
+            if (errDetails.output) errMsg += `\nActual output: ${errDetails.output}`;
+            if (errDetails.expected) errMsg += `\nExpected: ${errDetails.expected}`;
+            if (errDetails.lastInput) errMsg += `\nInput: ${errDetails.lastInput}`;
+          }
+          const fixed = await solver.fixSolution(code, errMsg, result.description, selectedLanguage);
+          if (fixed && solver.validateCode(fixed)) {
+            code = fixed;
+          } else break;
+        }
+      }
 
       if (submissionResult === 'success') {
         totalSolved++;
@@ -333,28 +379,45 @@ async function solveOne(urlOrSlug) {
 
     // Generate solution
     console.log('3. Generating solution...');
-    const code = await solver.generateSolution(description, selectedLanguage);
+    let code = await solver.generateSolution(description, selectedLanguage);
     if (!code) {
       console.log('Failed to generate solution');
       return false;
     }
     console.log(`   Generated ${code.length} chars\n`);
 
-    // Fill code
-    console.log('4. Filling code...');
-    const fillResult2 = browser.fillCode(code);
-    console.log(`   Result: ${fillResult2}\n`);
-    await new Promise(r => setTimeout(r, 500));
+    // Fill + submit with up to 3 fix attempts
+    let result;
+    const MAX_FIX = 3;
+    for (let fix = 0; fix <= MAX_FIX; fix++) {
+      console.log(`4. Filling code (attempt ${fix + 1})...`);
+      browser.fillCode(code);
+      await new Promise(r => setTimeout(r, 500));
 
-    // Submit
-    console.log('5. Submitting...');
-    const submitResult2 = browser.clickSubmit();
-    console.log(`   Result: ${submitResult2}\n`);
+      console.log('5. Submitting...');
+      browser.clickSubmit();
 
-    // Poll for result
-    console.log('6. Waiting for result (up to 60s)...');
-    const result = await browser.waitForSubmissionResult();
-    console.log(`\n   Result: ${result}\n`);
+      console.log('6. Waiting for result (up to 60s)...');
+      result = await browser.waitForSubmissionResult();
+      console.log(`\n   Result: ${result}\n`);
+
+      if (result === 'success') break;
+      if (result === 'not_logged_in') break;
+
+      if (fix < MAX_FIX) {
+        const errDetails = browser.getSubmissionError();
+        let errMsg = result;
+        if (errDetails) {
+          if (errDetails.errorText) errMsg += `\n${errDetails.errorText}`;
+          if (errDetails.output) errMsg += `\nActual output: ${errDetails.output}`;
+          if (errDetails.expected) errMsg += `\nExpected: ${errDetails.expected}`;
+        }
+        const fixed = await solver.fixSolution(code, errMsg, description, selectedLanguage);
+        if (fixed && solver.validateCode(fixed)) {
+          code = fixed;
+        } else break;
+      }
+    }
 
     if (result === 'success') {
       console.log('================================');

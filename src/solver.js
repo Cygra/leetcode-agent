@@ -1,194 +1,120 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
-const Anthropic = require('@anthropic-ai/sdk');
+const { execSync } = require('child_process');
+const OpenAI = require('openai');
+
+const GITHUB_MODELS_URL = 'https://models.inference.ai.azure.com';
+const DEFAULT_MODEL = 'gpt-4o-mini';
+
+const LANG_MAP = {
+  'python3': 'Python', 'python': 'Python',
+  'java': 'Java', 'cpp': 'C++', 'c++': 'C++',
+  'javascript': 'JavaScript', 'js': 'JavaScript',
+  'typescript': 'TypeScript', 'ts': 'TypeScript',
+  'go': 'Go', 'golang': 'Go',
+  'kotlin': 'Kotlin', 'swift': 'Swift',
+  'rust': 'Rust', 'ruby': 'Ruby',
+  'php': 'PHP', 'csharp': 'C#', 'c#': 'C#'
+};
 
 /**
- * Load Claude API config from settings file
+ * Get GitHub token from environment or gh CLI
  */
-function loadClaudeConfig() {
-  const settingsPath = path.join(process.env.HOME, '.claude/settings.json');
+function getGithubToken() {
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
   try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    const env = settings.env || {};
-    return {
-      baseUrl: env.ANTHROPIC_BASE_URL || '',
-      authToken: env.ANTHROPIC_AUTH_TOKEN || '',
-      timeoutMs: parseInt(env.API_TIMEOUT_MS) || 300000,
-      model: env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022'
-    };
-  } catch (e) {
-    console.error('Failed to load ~/.claude/settings.json:', e.message);
-    return {
-      baseUrl: '',
-      authToken: '',
-      timeoutMs: 300000,
-      model: 'claude-3-5-sonnet-20241022'
-    };
+    return execSync('gh auth token', { encoding: 'utf-8' }).trim();
+  } catch {
+    throw new Error('No GitHub token found. Run: gh auth login');
   }
 }
 
-const config = loadClaudeConfig();
+function createClient() {
+  return new OpenAI({
+    baseURL: GITHUB_MODELS_URL,
+    apiKey: getGithubToken()
+  });
+}
 
-// Create Anthropic client
-const clientOptions = { apiKey: config.authToken, timeout: config.timeoutMs };
-if (config.baseUrl) clientOptions.baseURL = config.baseUrl;
-const client = new Anthropic(clientOptions);
-
-/**
- * Generate solution using Claude API
- */
-async function generateSolution(problemDescription, language = 'python3', maxRetries = 3) {
-  console.log(`Generating ${language} solution...`);
-
-  const langMap = {
-    'python3': 'python',
-    'python': 'python',
-    'java': 'java',
-    'cpp': 'c++',
-    'c++': 'c++',
-    'javascript': 'javascript',
-    'js': 'javascript',
-    'typescript': 'typescript',
-    'ts': 'typescript',
-    'go': 'go',
-    'golang': 'go',
-    'kotlin': 'kotlin',
-    'swift': 'swift',
-    'rust': 'rust',
-    'ruby': 'ruby',
-    'php': 'php',
-    'csharp': 'c#',
-    'c#': 'c#'
-  };
-
-  const langName = langMap[language.toLowerCase()] || language;
-
-  // Clean the problem description - remove special Unicode characters that may cause issues
-  const cleanedDescription = problemDescription
-    .replace(/[\u2000-\u206F\u3000-\u303F\uFF00-\uFFEF\u0080-\u00FF]/g, ' ')
-    .replace(/\s+/g, ' ')
+function stripMarkdown(code) {
+  return code.trim()
+    .replace(/^```[\w]*\n?/i, '')
+    .replace(/\n?```$/,  '')
     .trim();
+}
 
+async function callApi(messages, maxRetries = 3) {
+  const client = createClient();
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    if (attempt > 0) {
-      console.log(`Retry attempt ${attempt + 1}/${maxRetries}...`);
-    }
-
-    const prompt = `Solve this LeetCode problem. Return ONLY the code solution in ${langName} without any explanation, markdown formatting, or backticks.
-
-Problem Description:
-${cleanedDescription}
-
-Requirements:
-- Return ONLY the raw code (no markdown, no backticks, no explanation)
-- The code should be complete and ready to run
-- Use standard library only unless specified
-- Include necessary imports
-- Handle edge cases
-
-Your response must be ONLY the code itself.`;
-
+    if (attempt > 0) console.log(`Retry ${attempt + 1}/${maxRetries}...`);
     try {
-      const message = await client.messages.create({
-        model: config.model,
-        max_tokens: 8192,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
+      const resp = await client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        messages,
+        max_tokens: 4096,
+        temperature: 0.2
       });
-
-      console.log('API response received');
-
-      // Extract content from the response - handle thinking blocks
-      let content = '';
-      let thinkingContent = '';
-
-      if (message.content && Array.isArray(message.content)) {
-        for (const block of message.content) {
-          if (block.type === 'text' && block.text) {
-            content += block.text;
-          } else if (block.type === 'thinking') {
-            thinkingContent = block.thinking || '';
-          }
-        }
-      } else if (typeof message.content === 'string') {
-        content = message.content;
-      }
-
-      // Fallback: if no text content found, try to extract code from thinking block
-      if (!content && thinkingContent) {
-        const codeFenceMatch = thinkingContent.match(/```[\w]*\n([\s\S]*?)```/);
-        if (codeFenceMatch && codeFenceMatch[1]) {
-          content = codeFenceMatch[1].trim();
-        } else {
-          const lines = thinkingContent.split('\n');
-          let codeLines = [];
-          let inCodeBlock = false;
-          for (const line of lines) {
-            if (line.match(/^\s{4,}/) || line.match(/^\t/)) {
-              inCodeBlock = true;
-              codeLines.push(line);
-            } else if (inCodeBlock && line.trim() === '') {
-              codeLines.push(line);
-            } else if (inCodeBlock) {
-              inCodeBlock = false;
-              if (codeLines.length > 3) break;
-              codeLines = [];
-            }
-          }
-          if (codeLines.length > 3) content = codeLines.join('\n').trim();
-        }
-      }
-
-      if (!content) {
-        console.error('Empty content in API response');
-        continue;
-      }
-
-      // Strip markdown formatting if present
-      let code = content.trim()
-        .replace(/^```\w*\n?/i, '')
-        .replace(/\n?```$/, '')
-        .trim();
-
-      if (!code) {
-        console.error('Empty code after parsing');
-        continue;
-      }
-
-      console.log(`Solution generated (${code.length} chars)`);
-      return code;
-    } catch (error) {
-      console.error('[SOLVER ERROR]', error.name || 'Error', ':', error.message);
-      if (error.status) console.error('[SOLVER ERROR] Status:', error.status);
-      if (error.headers) console.error('[SOLVER ERROR] Headers:', error.headers);
-      if (error.request_id) console.error('[SOLVER ERROR] Request ID:', error.request_id);
-      if (error.stack) console.error('[SOLVER ERROR] Stack:', error.stack);
-      // Log API connection errors separately
-      if (error.cause) console.error('[SOLVER ERROR] Cause:', error.cause);
+      const content = resp.choices?.[0]?.message?.content || '';
+      return stripMarkdown(content);
+    } catch (e) {
+      console.error('API error:', e.message);
+      if (attempt === maxRetries - 1) throw e;
     }
   }
-
-  console.error('All retry attempts failed');
   return null;
 }
 
 /**
- * Verify code looks valid (basic check)
+ * Generate a fresh solution for a LeetCode problem
+ */
+async function generateSolution(description, language = 'python3') {
+  console.log(`Generating ${language} solution...`);
+  const lang = LANG_MAP[language.toLowerCase()] || language;
+  const messages = [
+    {
+      role: 'system',
+      content: `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.`
+    },
+    {
+      role: 'user',
+      content: `Solve this LeetCode problem in ${lang}:\n\n${description}`
+    }
+  ];
+  const code = await callApi(messages);
+  if (code) console.log(`Solution generated (${code.length} chars)`);
+  return code;
+}
+
+/**
+ * Fix a solution given the submission error feedback
+ */
+async function fixSolution(code, errorMessage, description, language = 'python3') {
+  console.log(`Fixing ${language} solution based on error...`);
+  const lang = LANG_MAP[language.toLowerCase()] || language;
+  const messages = [
+    {
+      role: 'system',
+      content: `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.`
+    },
+    {
+      role: 'user',
+      content: `This ${lang} LeetCode solution has an error. Fix it.\n\nProblem:\n${description}\n\nCurrent code:\n${code}\n\nError/failure:\n${errorMessage}\n\nReturn ONLY the fixed code.`
+    }
+  ];
+  const fixed = await callApi(messages);
+  if (fixed) console.log(`Fixed solution generated (${fixed.length} chars)`);
+  return fixed;
+}
+
+/**
+ * Basic validation that the code looks usable
  */
 function validateCode(code) {
   if (!code || typeof code !== 'string') return false;
   if (code.length < 20) return false;
-  if (code.includes('Error:') || code.includes('Exception')) return false;
+  if (code.startsWith('Error:') || code.startsWith('Sorry')) return false;
   return true;
 }
 
-module.exports = {
-  generateSolution,
-  validateCode
-};
+module.exports = { generateSolution, fixSolution, validateCode };
+
