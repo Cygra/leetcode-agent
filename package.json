@@ -1,0 +1,23 @@
+{
+  "name": "leetcode-agent",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "solve": "node src/index.js --once",
+    "test": "node src/index.js --test",
+    "close": "agent-browser --session-name leetcode close"
+  },
+  "keywords": [
+    "leetcode",
+    "automation",
+    "agent"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "LeetCode Auto Solver Agent",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "agent-browser": "^0.21.4"
+  }
+}
