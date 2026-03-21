@@ -13,31 +13,28 @@ function loadClaudeConfig() {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     const env = settings.env || {};
     return {
-      baseUrl: env.ANTHROPIC_BASE_URL || 'https://api.minimaxi.com/anthropic',
-      // SDK expects raw token, not Bearer prefix
+      baseUrl: env.ANTHROPIC_BASE_URL || '',
       authToken: env.ANTHROPIC_AUTH_TOKEN || '',
       timeoutMs: parseInt(env.API_TIMEOUT_MS) || 300000,
-      model: env.ANTHROPIC_MODEL || 'MiniMax-M2.7'
+      model: env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022'
     };
   } catch (e) {
-    console.error('Failed to load settings.json:', e.message);
+    console.error('Failed to load ~/.claude/settings.json:', e.message);
     return {
-      baseUrl: 'https://api.minimaxi.com/anthropic',
+      baseUrl: '',
       authToken: '',
       timeoutMs: 300000,
-      model: 'MiniMax-M2.7'
+      model: 'claude-3-5-sonnet-20241022'
     };
   }
 }
 
 const config = loadClaudeConfig();
 
-// Create Anthropic client with MiniMax endpoint
-const client = new Anthropic({
-  baseURL: config.baseUrl,
-  apiKey: config.authToken,
-  timeout: config.timeoutMs,
-});
+// Create Anthropic client
+const clientOptions = { apiKey: config.authToken, timeout: config.timeoutMs };
+if (config.baseUrl) clientOptions.baseURL = config.baseUrl;
+const client = new Anthropic(clientOptions);
 
 /**
  * Generate solution using Claude API
