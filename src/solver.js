@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
-const OpenAI = require('openai');
-
-const GITHUB_MODELS_URL = 'https://models.inference.ai.azure.com';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const { execFile } = require('child_process');
 
 const LANG_MAP = {
   'python3': 'Python', 'python': 'Python',
@@ -17,25 +13,6 @@ const LANG_MAP = {
   'php': 'PHP', 'csharp': 'C#', 'c#': 'C#'
 };
 
-/**
- * Get GitHub token from environment or gh CLI
- */
-function getGithubToken() {
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
-  try {
-    return execSync('gh auth token', { encoding: 'utf-8' }).trim();
-  } catch {
-    throw new Error('No GitHub token found. Run: gh auth login');
-  }
-}
-
-function createClient() {
-  return new OpenAI({
-    baseURL: GITHUB_MODELS_URL,
-    apiKey: getGithubToken()
-  });
-}
-
 function stripMarkdown(code) {
   return code.trim()
     .replace(/^```[\w]*\n?/i, '')
@@ -43,25 +20,29 @@ function stripMarkdown(code) {
     .trim();
 }
 
-async function callApi(messages, maxRetries = 3) {
-  const client = createClient();
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    if (attempt > 0) console.log(`Retry ${attempt + 1}/${maxRetries}...`);
-    try {
-      const resp = await client.chat.completions.create({
-        model: DEFAULT_MODEL,
-        messages,
-        max_tokens: 4096,
-        temperature: 0.2
+function callClaude(prompt, maxRetries = 3) {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+
+    function tryOnce() {
+      if (attempt > 0) console.log(`Retry ${attempt + 1}/${maxRetries}...`);
+      attempt++;
+
+      const proc = execFile('claude', ['-p', '--output-format', 'text'], (err, stdout, stderr) => {
+        if (err) {
+          console.error('claude error:', err.message);
+          if (attempt < maxRetries) return tryOnce();
+          return reject(err);
+        }
+        resolve(stripMarkdown(stdout));
       });
-      const content = resp.choices?.[0]?.message?.content || '';
-      return stripMarkdown(content);
-    } catch (e) {
-      console.error('API error:', e.message);
-      if (attempt === maxRetries - 1) throw e;
+
+      proc.stdin.write(prompt);
+      proc.stdin.end();
     }
-  }
-  return null;
+
+    tryOnce();
+  });
 }
 
 /**
@@ -70,17 +51,8 @@ async function callApi(messages, maxRetries = 3) {
 async function generateSolution(description, language = 'python3') {
   console.log(`Generating ${language} solution...`);
   const lang = LANG_MAP[language.toLowerCase()] || language;
-  const messages = [
-    {
-      role: 'system',
-      content: `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.`
-    },
-    {
-      role: 'user',
-      content: `Solve this LeetCode problem in ${lang}:\n\n${description}`
-    }
-  ];
-  const code = await callApi(messages);
+  const prompt = `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.\n\nSolve this LeetCode problem in ${lang}:\n\n${description}`;
+  const code = await callClaude(prompt);
   if (code) console.log(`Solution generated (${code.length} chars)`);
   return code;
 }
@@ -91,17 +63,8 @@ async function generateSolution(description, language = 'python3') {
 async function fixSolution(code, errorMessage, description, language = 'python3') {
   console.log(`Fixing ${language} solution based on error...`);
   const lang = LANG_MAP[language.toLowerCase()] || language;
-  const messages = [
-    {
-      role: 'system',
-      content: `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.`
-    },
-    {
-      role: 'user',
-      content: `This ${lang} LeetCode solution has an error. Fix it.\n\nProblem:\n${description}\n\nCurrent code:\n${code}\n\nError/failure:\n${errorMessage}\n\nReturn ONLY the fixed code.`
-    }
-  ];
-  const fixed = await callApi(messages);
+  const prompt = `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.\n\nThis ${lang} LeetCode solution has an error. Fix it.\n\nProblem:\n${description}\n\nCurrent code:\n${code}\n\nError/failure:\n${errorMessage}\n\nReturn ONLY the fixed code.`;
+  const fixed = await callClaude(prompt);
   if (fixed) console.log(`Fixed solution generated (${fixed.length} chars)`);
   return fixed;
 }
@@ -117,4 +80,3 @@ function validateCode(code) {
 }
 
 module.exports = { generateSolution, fixSolution, validateCode };
-
