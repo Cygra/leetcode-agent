@@ -5,7 +5,7 @@
 ## 功能
 
 - 🔀 自动打开随机题目（跳过会员专享题、已解答题目）
-- 🤖 使用 GitHub Copilot（`gpt-4o-mini`）生成代码答案
+- 🤖 使用本地 Claude Code CLI（`claude -p`）生成代码答案
 - ✏️ 自动填写 Monaco 编辑器并提交
 - 🔧 提交出错时自动提取错误信息，让 AI 修复，最多重试 3 次
 - 🔁 失败自动重试，支持无限循环模式
@@ -16,7 +16,7 @@
 
 - [Node.js](https://nodejs.org/) 18+
 - [agent-browser](https://github.com/AgentBrowser/agent-browser) CLI
-- [GitHub CLI](https://cli.github.com/)（`gh`）并已登录（用于获取 Copilot API Token）
+- [Claude Code](https://claude.ai/code) CLI（`claude`）已安装并登录
 - LeetCode CN 账号
 
 ## 安装
@@ -29,15 +29,9 @@ npm install
 
 ## 配置
 
-### AI API
+### AI
 
-使用 GitHub Copilot / GitHub Models API，无需额外配置。确保已通过 `gh auth login` 登录 GitHub CLI 即可。
-
-也可通过环境变量 `GITHUB_TOKEN` 指定 Token：
-
-```bash
-export GITHUB_TOKEN=your_token_here
-```
+使用本地 Claude Code CLI，无需配置 API Key。确保 `claude` 命令可用且已登录即可。
 
 ### Chrome 路径（可选）
 
@@ -81,7 +75,7 @@ src/
 ├── index.js     # 主程序入口，解题流程编排
 ├── browser.js   # 浏览器控制（agent-browser 封装）
 ├── leetcode.js  # LeetCode 页面操作
-└── solver.js    # AI 代码生成（GitHub Copilot API）
+└── solver.js    # AI 代码生成（Claude Code CLI）
 test/
 ├── solver.test.js      # AI 生成 / 修复代码测试
 └── submission.test.js  # 提交结果检测测试

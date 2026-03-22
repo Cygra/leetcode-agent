@@ -122,7 +122,18 @@ async function openRandomProblem(maxAttempts = 5) {
         }
         const description = await maybeAwait(browser.getDescriptionContent());
         if (description && description.length > 50) {
-          return { url, description, success: true };
+          // Check difficulty - skip hard problems
+          const difficulty = await getProblemDifficulty();
+          console.log(`   Difficulty: ${difficulty || 'unknown'}`);
+          if (difficulty === 'hard') {
+            console.log(`Skipping hard problem: ${randomSlug}`);
+            continue;
+          }
+          if(difficulty === 'medium') {
+            console.log(`Skipping medium problem: ${randomSlug}`);
+            continue;
+          }
+          return { url, description, difficulty, success: true };
         } else {
           console.log('Description too short or not found');
         }
@@ -165,8 +176,50 @@ async function getProblemDescription() {
 }
 
 /**
- * Get problem title from current page
+ * Get problem difficulty from current page
+ * Returns 'easy', 'medium', 'hard', or null if not found
  */
+async function getProblemDifficulty() {
+  const script = `(function() {
+    // Try class-based selectors first
+    const selectors = [
+      '[class*="text-difficulty-hard"]',
+      '[class*="text-difficulty-medium"]',
+      '[class*="text-difficulty-easy"]',
+      '[class*="difficulty"]',
+      '[class*="Difficulty"]',
+      '[class*="diff-tag"]',
+      '[class*="DiffTag"]'
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) {
+        const text = el.innerText.trim();
+        if (text) return text;
+      }
+    }
+    // Fallback: scan all elements for difficulty keywords
+    const all = document.querySelectorAll('span, div');
+    for (const el of all) {
+      const t = el.innerText.trim();
+      if (t === '简单' || t === '中等' || t === '困难') return t;
+    }
+    return null;
+  })()`;
+  const result = await maybeAwait(browser.evalJs(script));
+  if (!result) return null;
+  const text = result.trim();
+  if (text === '简单') return 'easy';
+  if (text === '中等') return 'medium';
+  if (text === '困难') return 'hard';
+  // English fallback
+  const lower = text.toLowerCase();
+  if (lower.includes('easy')) return 'easy';
+  if (lower.includes('medium')) return 'medium';
+  if (lower.includes('hard')) return 'hard';
+  return null;
+}
+
 async function getProblemTitle() {
   const script = `(function() {
     const titleEl = document.querySelector('h1, [class*="title"]');
@@ -179,5 +232,6 @@ module.exports = {
   clickRandomButton,
   openRandomProblem,
   getProblemDescription,
+  getProblemDifficulty,
   getProblemTitle
 };

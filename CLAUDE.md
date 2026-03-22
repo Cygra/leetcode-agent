@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LeetCode Auto Solver Agent - automatically opens LeetCode problems, generates solutions via Claude API, fills the Monaco editor, and submits.
+LeetCode Auto Solver Agent - automatically opens LeetCode problems, generates solutions via local Claude Code CLI (`claude -p`), fills the Monaco editor, and submits.
 
 ## Commands
 
@@ -41,8 +41,8 @@ src/
 - Submission and result checking via `browser`
 
 ### src/solver.js
-- Calls Claude API (MiniMax at `https://api.minimaxi.com/anthropic`) to generate code
-- Loads auth config from `~/.claude/settings.json`
+- Calls local Claude Code CLI via `execFile('claude', ['-p', '--output-format', 'text'])`
+- Prompt passed via stdin; no API key or env vars needed
 - Returns raw code (strips markdown, backticks)
 
 ## Key Implementation Details
