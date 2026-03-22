@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
 const args = process.argv.slice(2);
 const remainingArgs = args;
 
@@ -471,9 +472,74 @@ async function solveOne(urlOrSlug) {
   }
 }
 
+/**
+ * Solve problems from a JSON list file.
+ * Each item: { "url": "...", "solved": true/false }
+ * Marks solved:true and adds solvedAt timestamp after each success.
+ */
+async function solveList(filePath) {
+  const absPath = require('path').resolve(filePath);
+  if (!fs.existsSync(absPath)) {
+    console.error(`File not found: ${absPath}`);
+    process.exit(1);
+  }
+
+  let list;
+  try {
+    list = JSON.parse(fs.readFileSync(absPath, 'utf-8'));
+  } catch (e) {
+    console.error(`Failed to parse JSON: ${e.message}`);
+    process.exit(1);
+  }
+
+  if (!Array.isArray(list)) {
+    console.error('JSON must be an array of { url, solved? } objects');
+    process.exit(1);
+  }
+
+  console.log('Starting LeetCode List Solver...');
+  console.log(`Language: ${selectedLanguage}`);
+  console.log(`File: ${absPath}`);
+  const pending = list.filter(item => !item.solved);
+  console.log(`Total: ${list.length}, Pending: ${pending.length}\n`);
+  console.log('================================\n');
+
+  const loggedIn = await browser.waitForLogin();
+  if (!loggedIn) { console.log('未能登录，退出。'); return; }
+
+  let solved = 0;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (item.solved) {
+      console.log(`[${i + 1}/${list.length}] Already solved, skipping: ${item.url}\n`);
+      continue;
+    }
+
+    console.log(`[${i + 1}/${list.length}] Solving: ${item.url}`);
+    const success = await solveOne(item.url);
+
+    if (success) {
+      item.solved = true;
+      item.solvedAt = new Date().toISOString();
+      solved++;
+      console.log(`Marked solved. Total solved this run: ${solved}\n`);
+    } else {
+      console.log(`Failed to solve, continuing to next.\n`);
+    }
+
+    // Persist after every attempt so progress is saved even if interrupted
+    fs.writeFileSync(absPath, JSON.stringify(list, null, 2), 'utf-8');
+  }
+
+  console.log('================================');
+  console.log(`Done. Solved ${solved} / ${pending.length} pending problems.`);
+  console.log('================================');
+}
+
 // Main entry point
 // Parse arguments
 const otherArgs = [];
+let listFile = null;
 for (let i = 0; i < remainingArgs.length; i++) {
   const arg = remainingArgs[i];
   if (arg === '--lang' && i + 1 < remainingArgs.length) {
@@ -484,6 +550,11 @@ for (let i = 0; i < remainingArgs.length; i++) {
   } else if (arg === '-l' && i + 1 < remainingArgs.length) {
     selectedLanguage = remainingArgs[i + 1];
     i++;
+  } else if ((arg === '--list' || arg === '-f') && i + 1 < remainingArgs.length) {
+    listFile = remainingArgs[i + 1];
+    i++;
+  } else if (arg.startsWith('--list=')) {
+    listFile = arg.substring(7);
   } else {
     otherArgs.push(arg);
   }
@@ -499,9 +570,15 @@ Usage:
 Options:
   --once, -o                 Solve one random problem
   --continuous, -c            Run continuously (infinite loop)
+  --list, -f <file>          Solve problems from a JSON list file
   --lang, -l <language>      Set programming language (default: python3)
-  --browser <type>            Browser to use (default: agent-browser)
   --test                     Test browser connection
+
+List file format (JSON array):
+  [
+    { "url": "https://leetcode.cn/problems/two-sum/" },
+    { "url": "https://leetcode.cn/problems/climbing-stairs/", "solved": true }
+  ]
 
 Languages:
   python3, java, cpp, javascript, typescript, go, kotlin, swift, rust, ruby, php
@@ -513,6 +590,7 @@ Examples:
   node src/index.js --continuous -l java   # Continuous with Java
   node src/index.js two-sum                # Solve specific problem
   node src/index.js https://leetcode.cn/problems/two-sum/
+  node src/index.js --list problems.json   # Solve from list file
   node src/index.js --lang java            # Use Java
   node src/index.js --once --lang cpp     # One problem with C++
   `);
@@ -531,7 +609,12 @@ if (otherArgs.includes('--test')) {
   });
 }
 
-if (otherArgs.includes('--once') || otherArgs.includes('-o')) {
+if (listFile) {
+  solveList(listFile).then(() => process.exit(0)).catch(err => {
+    console.error('List solver error:', err);
+    process.exit(1);
+  });
+} else if (otherArgs.includes('--once') || otherArgs.includes('-o')) {
   autoSolve(1).then(success => {
     process.exit(success ? 0 : 1);
   });
