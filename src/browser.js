@@ -230,11 +230,11 @@ function selectLanguage(lang = 'Python3') {
   const langName = langMap[lang.toLowerCase()] || lang;
 
   const script = `(async function() {
-    // Find language dropdown button (aria-haspopup=dialog with visible text)
-    const buttons = document.querySelectorAll('button');
+    // Find language dropdown button: aria-haspopup=dialog containing a chevron-down icon
+    const buttons = document.querySelectorAll('button[aria-haspopup="dialog"]');
     let langButton = null;
     for (const btn of buttons) {
-      if (btn.getAttribute('aria-haspopup') === 'dialog' && btn.innerText.trim().length > 0) {
+      if (btn.querySelector('.fa-chevron-down') && btn.innerText.trim().length > 0) {
         langButton = btn;
         break;
       }
