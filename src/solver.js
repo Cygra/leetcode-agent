@@ -28,7 +28,7 @@ function callClaude(prompt, maxRetries = 3) {
       if (attempt > 0) console.log(`Retry ${attempt + 1}/${maxRetries}...`);
       attempt++;
 
-      const proc = execFile('claude', ['-p', '--output-format', 'text'], (err, stdout, stderr) => {
+      const proc = execFile('claude', ['-p', '--output-format', 'text'], { timeout: 120000 }, (err, stdout, stderr) => {
         if (err) {
           console.error('claude error:', err.message);
           if (attempt < maxRetries) return tryOnce();
