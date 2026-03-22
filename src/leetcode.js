@@ -60,9 +60,8 @@ async function clickRandomButton() {
  * Open a random problem - gets slugs from problemset page and picks randomly
  */
 async function openRandomProblem(maxAttempts = 5) {
-  for (let i = 0; i < maxAttempts; i++) {
-    console.log(`Attempt ${i + 1}: Getting random problem...`);
-
+  let errorCount = 0;
+  while (true) {
     try {
       // Open the problemset page
       await browser.open(browser.PROBLEMSET_URL);
@@ -142,10 +141,9 @@ async function openRandomProblem(maxAttempts = 5) {
       }
     } catch (e) {
       console.log('Error:', e.message);
+      if (++errorCount >= maxAttempts) return { success: false };
     }
   }
-
-  return { success: false };
 }
 
 /**
