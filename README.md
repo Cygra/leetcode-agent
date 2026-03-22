@@ -4,10 +4,11 @@
 
 ## 功能
 
-- 🔀 自动打开随机题目（跳过会员专享题、已解答题目）
-- 🤖 使用本地 Claude Code CLI（`claude -p`）生成代码答案
+- 🔀 自动打开随机题目（跳过会员专享题、已解答题目、困难/中等题）
+- 🤖 使用本地 Claude Code CLI（`claude -p`）两步生成代码答案（先分析算法，再写代码）
 - ✏️ 自动填写 Monaco 编辑器并提交
 - 🔧 提交出错时自动提取错误信息，让 AI 修复，最多重试 3 次
+- 📋 支持从 JSON 文件批量解题，自动标记完成状态
 - 🔁 失败自动重试，支持无限循环模式
 - 🌐 支持有头浏览器，Session 持久化（只需登录一次）
 - 🌍 支持多种编程语言
@@ -54,15 +55,31 @@ npm start
 ### 常用命令
 
 ```bash
-npm start                              # 自动解题（最多 5 次重试）
-npm run solve                          # 解一道随机题
-node src/index.js --continuous         # 无限循环模式（Ctrl+C 停止）
-node src/index.js --continuous -l java # 无限循环，使用 Java
-node src/index.js two-sum              # 解特定题目（slug）
-node src/index.js --lang cpp           # 指定语言（默认 python3）
-npm run close                          # 关闭浏览器
-npm test                               # 运行测试
+npm start                                    # 自动解题（最多 5 次重试）
+npm run solve                                # 解一道随机题
+node src/index.js --continuous               # 无限循环模式（Ctrl+C 停止）
+node src/index.js --continuous -l java       # 无限循环，使用 Java
+node src/index.js two-sum                    # 解特定题目（slug）
+node src/index.js --lang cpp                 # 指定语言（默认 python3）
+node src/index.js --list problems.json       # 从 JSON 文件批量解题
+node src/index.js --list problems.json -l java  # 批量解题，使用 Java
+npm run close                                # 关闭浏览器
+npm test                                     # 运行测试
 ```
+
+### 批量解题（JSON 列表模式）
+
+创建一个 JSON 文件，每项包含题目链接：
+
+```json
+[
+  { "url": "https://leetcode.cn/problems/two-sum/" },
+  { "url": "https://leetcode.cn/problems/climbing-stairs/" },
+  { "url": "https://leetcode.cn/problems/valid-parentheses/", "solved": true }
+]
+```
+
+运行后会逐题解答，成功后自动在文件中标记 `"solved": true` 和 `"solvedAt"` 时间戳。每题完成后立即写回文件，中断也不丢进度。
 
 ### 支持的语言
 
@@ -83,14 +100,23 @@ test/
 
 ## 工作流程
 
-1. 打开 LeetCode 题库页，随机选一道题
-2. 跳过会员专享题、已解答过的题目
-3. 提取题目描述，调用 AI 生成代码
-4. 选择目标语言，填入 Monaco 编辑器并提交
+### 随机模式
+
+1. 打开 LeetCode 题库页，随机选一道简单题
+2. 跳过会员专享题、已解答过的题目、困难/中等题
+3. 读取编辑器 starter code，调用 AI 两步生成代码（先分析算法，再写代码）
+4. 选择目标语言，语法校验后填入 Monaco 编辑器并提交
 5. 等待结果：
    - ✅ 通过 → 继续下一题
-   - ❌ 出错 → 提取错误详情（输出/期望/错误信息），让 AI 修复后重新提交，最多 3 次
+   - ❌ 出错 → 提取结构化错误详情（输入/输出/期望值），让 AI 修复后重新提交，最多 3 次
    - 3 次修复仍失败 → 换一道新题重试
+
+### 列表模式（`--list`）
+
+1. 读取 JSON 文件，跳过已标记 `solved: true` 的条目
+2. 对每道题调用与随机模式相同的解题流程
+3. 成功后将 `solved: true` 和 `solvedAt` 写回文件
+4. 每题后立即持久化，中断可续
 
 ## License
 
