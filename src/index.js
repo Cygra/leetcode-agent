@@ -12,6 +12,23 @@ const solver = require('./solver');
 let selectedLanguage = 'python3';
 
 /**
+ * Format submission error details into a structured string for the AI
+ */
+function formatError(submissionResult, errDetails) {
+  let msg = `Submission failed: ${submissionResult}`;
+  if (!errDetails) return msg;
+  if (errDetails.lastInput || errDetails.output || errDetails.expected) {
+    msg += '\n\nFailed test case:';
+    if (errDetails.lastInput) msg += `\n  Input:    ${errDetails.lastInput}`;
+    if (errDetails.expected)  msg += `\n  Expected: ${errDetails.expected}`;
+    if (errDetails.output)    msg += `\n  Got:      ${errDetails.output}`;
+  }
+  if (errDetails.errorText) msg += `\n\nError message: ${errDetails.errorText}`;
+  if (errDetails.passCount)  msg += `\nProgress: ${errDetails.passCount}`;
+  return msg;
+}
+
+/**
  * Auto-solve loop - solve problems until success or max retries
  */
 async function autoSolve(maxRetries = 5) {
@@ -64,14 +81,24 @@ async function autoSolve(maxRetries = 5) {
       console.log(`   Result: ${langResult}\n`);
       await new Promise(r => setTimeout(r, 1000));
 
+      // Read starter code after language is set
+      const starterCode = browser.getStarterCode();
+      if (starterCode) console.log(`   Starter code: ${starterCode.substring(0, 80).replace(/\n/g, '|')}...\n`);
+
       // 4. Generate solution
       console.log('4. Generating solution with AI...');
-      let code = await solver.generateSolution(result.description, selectedLanguage);
+      let code = await solver.generateSolution(result.description, selectedLanguage, starterCode);
 
       console.log(`   code = ${code ? 'truthy (' + code.length + ' chars)' : 'falsy'}, validateCode = ${solver.validateCode(code)}`);
       if (!code || !solver.validateCode(code)) {
         console.log('Failed to generate valid solution, retrying...\n');
         if (code) console.log('   code preview:', code.substring(0, 200));
+        continue;
+      }
+
+      // Syntax check before submitting
+      if (!solver.validateSyntax(code, selectedLanguage)) {
+        console.log('Generated code has syntax errors, retrying...\n');
         continue;
       }
 
@@ -101,17 +128,10 @@ async function autoSolve(maxRetries = 5) {
         if (fix < MAX_FIX_ATTEMPTS) {
           // Extract error details and attempt a fix
           const errDetails = browser.getSubmissionError();
-          let errMsg = submissionResult;
-          if (errDetails) {
-            if (errDetails.errorText) errMsg += `\n${errDetails.errorText}`;
-            if (errDetails.output) errMsg += `\nActual output: ${errDetails.output}`;
-            if (errDetails.expected) errMsg += `\nExpected: ${errDetails.expected}`;
-            if (errDetails.lastInput) errMsg += `\nInput: ${errDetails.lastInput}`;
-            if (errDetails.passCount) errMsg += `\n${errDetails.passCount}`;
-          }
+          const errMsg = formatError(submissionResult, errDetails);
           console.log(`   Error details: ${errMsg}`);
           console.log(`   Fixing solution (fix ${fix + 1}/${MAX_FIX_ATTEMPTS})...`);
-          const fixed = await solver.fixSolution(code, errMsg, result.description, selectedLanguage);
+          const fixed = await solver.fixSolution(code, errMsg, result.description, selectedLanguage, starterCode);
           if (fixed && solver.validateCode(fixed)) {
             code = fixed;
           } else {
@@ -228,12 +248,22 @@ async function autoSolveContinuous() {
       console.log(`   Result: ${langResult}\n`);
       await new Promise(r => setTimeout(r, 1000));
 
+      // Read starter code after language is set
+      const starterCode = browser.getStarterCode();
+
       // 4. Generate solution
       console.log('4. Generating solution with AI...');
-      let code = await solver.generateSolution(result.description, selectedLanguage);
+      let code = await solver.generateSolution(result.description, selectedLanguage, starterCode);
 
       if (!code || !solver.validateCode(code)) {
         console.log('Failed to generate valid solution, retrying...\n');
+        consecutiveFailures++;
+        continue;
+      }
+
+      // Syntax check before submitting
+      if (!solver.validateSyntax(code, selectedLanguage)) {
+        console.log('Generated code has syntax errors, retrying...\n');
         consecutiveFailures++;
         continue;
       }
@@ -260,14 +290,8 @@ async function autoSolveContinuous() {
 
         if (fix < MAX_FIX) {
           const errDetails = browser.getSubmissionError();
-          let errMsg = submissionResult;
-          if (errDetails) {
-            if (errDetails.errorText) errMsg += `\n${errDetails.errorText}`;
-            if (errDetails.output) errMsg += `\nActual output: ${errDetails.output}`;
-            if (errDetails.expected) errMsg += `\nExpected: ${errDetails.expected}`;
-            if (errDetails.lastInput) errMsg += `\nInput: ${errDetails.lastInput}`;
-          }
-          const fixed = await solver.fixSolution(code, errMsg, result.description, selectedLanguage);
+          const errMsg = formatError(submissionResult, errDetails);
+          const fixed = await solver.fixSolution(code, errMsg, result.description, selectedLanguage, starterCode);
           if (fixed && solver.validateCode(fixed)) {
             code = fixed;
           } else break;
@@ -377,13 +401,23 @@ async function solveOne(urlOrSlug) {
     console.log(`   Result: ${langResult2}\n`);
     await new Promise(r => setTimeout(r, 1000));
 
+    // Read starter code after language is set
+    const starterCode = browser.getStarterCode();
+
     // Generate solution
     console.log('3. Generating solution...');
-    let code = await solver.generateSolution(description, selectedLanguage);
+    let code = await solver.generateSolution(description, selectedLanguage, starterCode);
     if (!code) {
       console.log('Failed to generate solution');
       return false;
     }
+
+    // Syntax check before submitting
+    if (!solver.validateSyntax(code, selectedLanguage)) {
+      console.log('Generated code has syntax errors, aborting.');
+      return false;
+    }
+
     console.log(`   Generated ${code.length} chars\n`);
 
     // Fill + submit with up to 3 fix attempts
@@ -406,13 +440,8 @@ async function solveOne(urlOrSlug) {
 
       if (fix < MAX_FIX) {
         const errDetails = browser.getSubmissionError();
-        let errMsg = result;
-        if (errDetails) {
-          if (errDetails.errorText) errMsg += `\n${errDetails.errorText}`;
-          if (errDetails.output) errMsg += `\nActual output: ${errDetails.output}`;
-          if (errDetails.expected) errMsg += `\nExpected: ${errDetails.expected}`;
-        }
-        const fixed = await solver.fixSolution(code, errMsg, description, selectedLanguage);
+        const errMsg = formatError(result, errDetails);
+        const fixed = await solver.fixSolution(code, errMsg, description, selectedLanguage, starterCode);
         if (fixed && solver.validateCode(fixed)) {
           code = fixed;
         } else break;

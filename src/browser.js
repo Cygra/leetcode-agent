@@ -271,6 +271,13 @@ function selectLanguage(lang = 'Python3') {
 }
 
 /**
+ * Read current Monaco editor content (e.g. starter code template)
+ */
+function getStarterCode() {
+  return evalJsValue(`monaco.editor.getEditors()[0].getModel().getValue()`) || '';
+}
+
+/**
  * Get Monaco editor element and fill with code
  * Uses getModel().setValue() which is the correct Monaco API
  */
@@ -477,6 +484,7 @@ module.exports = {
   waitForLogin,
   selectLanguage,
   fillCode,
+  getStarterCode,
   clickSubmit,
   getSubmissionResult,
   getSubmissionError,

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 
 const LANG_MAP = {
   'python3': 'Python', 'python': 'Python',
@@ -46,24 +46,80 @@ function callClaude(prompt, maxRetries = 3) {
 }
 
 /**
- * Generate a fresh solution for a LeetCode problem
+ * Validate syntax before submitting.
+ * Returns true if syntax is valid (or language not checkable), false if syntax error.
  */
-async function generateSolution(description, language = 'python3') {
+function validateSyntax(code, language) {
+  const lang = language.toLowerCase();
+  try {
+    if (lang === 'python3' || lang === 'python') {
+      execFileSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], {
+        input: code,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      return true;
+    }
+    if (lang === 'javascript' || lang === 'js' || lang === 'typescript' || lang === 'ts') {
+      // eslint-disable-next-line no-new-func
+      new Function(code);
+      return true;
+    }
+    return true; // skip check for other languages
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Generate a fresh solution for a LeetCode problem.
+ * Two-step: first analyze the algorithm, then generate code.
+ */
+async function generateSolution(description, language = 'python3', starterCode = '') {
   console.log(`Generating ${language} solution...`);
   const lang = LANG_MAP[language.toLowerCase()] || language;
-  const prompt = `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.\n\nSolve this LeetCode problem in ${lang}:\n\n${description}`;
-  const code = await callClaude(prompt);
+
+  // Step 1: analyze algorithm
+  const analysisPrompt = `Analyze this LeetCode problem and briefly describe the optimal algorithm in 1-3 sentences. No code, no examples — just the algorithm idea.\n\nProblem:\n${description}`;
+  const analysis = await callClaude(analysisPrompt);
+  console.log(`   Algorithm: ${analysis}`);
+
+  // Step 2: generate code using analysis + starter code
+  const starterSection = starterCode
+    ? `\nStarter code (preserve class name, method name, and parameter names exactly):\n${starterCode}\n`
+    : '';
+  const codePrompt = `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission. Do NOT change the class name, method name, or parameter names from the starter code. Do NOT add import statements unless strictly necessary.${starterSection}
+Algorithm to implement: ${analysis}
+
+Problem:
+${description}`;
+
+  const code = await callClaude(codePrompt);
   if (code) console.log(`Solution generated (${code.length} chars)`);
   return code;
 }
 
 /**
- * Fix a solution given the submission error feedback
+ * Fix a solution given the submission error feedback.
  */
-async function fixSolution(code, errorMessage, description, language = 'python3') {
+async function fixSolution(code, errorMessage, description, language = 'python3', starterCode = '') {
   console.log(`Fixing ${language} solution based on error...`);
   const lang = LANG_MAP[language.toLowerCase()] || language;
-  const prompt = `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission.\n\nThis ${lang} LeetCode solution has an error. Fix it.\n\nProblem:\n${description}\n\nCurrent code:\n${code}\n\nError/failure:\n${errorMessage}\n\nReturn ONLY the fixed code.`;
+  const starterSection = starterCode
+    ? `\nStarter code (preserve class name, method name, and parameter names exactly):\n${starterCode}\n`
+    : '';
+  const prompt = `You are an expert competitive programmer. Return ONLY raw ${lang} code with no explanation, no markdown, no backticks. The code must be complete and directly runnable as a LeetCode submission. Do NOT change the class name, method name, or parameter names from the starter code.${starterSection}
+This ${lang} LeetCode solution failed. Fix it.
+
+Problem:
+${description}
+
+Current code:
+${code}
+
+${errorMessage}
+
+Return ONLY the fixed code.`;
+
   const fixed = await callClaude(prompt);
   if (fixed) console.log(`Fixed solution generated (${fixed.length} chars)`);
   return fixed;
@@ -79,4 +135,4 @@ function validateCode(code) {
   return true;
 }
 
-module.exports = { generateSolution, fixSolution, validateCode };
+module.exports = { generateSolution, fixSolution, validateCode, validateSyntax };
